@@ -14,7 +14,7 @@ const defaultOptions = {
 
 // schema of the dummy files
 const dummySchemas = {
-    "1. Point of origin": {
+    "Sheet1": {
         "First Name": {
             prop: "firstName",
             type: String

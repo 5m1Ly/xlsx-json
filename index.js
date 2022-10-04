@@ -1,166 +1,132 @@
-const { readdirSync, existsSync } = require("node:fs")
-const { join } = require("node:path")
-const { } = require('read-excel-file/node');
+const { existsSync, readdirSync, statSync } = require("node:fs");
+const { join } = require("node:path");
+const { runInThisContext } = require("node:vm");
+const readXlsxFile = { readSheetNames } = require('read-excel-file/node');
 
-const errors = (src = "core") => {
+class File {
 
-    const error = {
-        source: src,
-        label: `[xlsx_reader:error:${src}] `,
-        count: 0
-    }
+    sheets = [];
 
-    return (info, ...args) => {
+    constructor(path, file) {
 
-        const message = typeof info === "string" ? info : "unkown error occured";
-        const details = [...args].length > 0 ? "| details >>" : "";
-        const baseErr = `${error.label} ${message}`
-
-        console.log(`${baseErr} ${details}`, ...args)
-
-        error.count++;
-
-        return baseErr
+        // set file metadata
+        this.path = join(path, file);
+        this.fullname = file;
+        this.name = file.replace(".xlsx", "");
+        this.stats = statSync(this.path);
 
     }
 
-}
+    read = (sheet, options) => new Promise(async r => {
 
-class Cache {
+        if (!this.sheets[sheet] || options.override)
+            this.sheets[sheet] = await readXlsxFile(this.path, { sheet })
 
-    e = errors("cache")
-    cache = []
+        return r(this.sheets[sheet])
 
-    constructor() {}
-
-    store = (key, val, override) => {
-        if (this.cache[key] && !override)
-            return this.e("there is allready a value stored at the location of the given key set the third parameter to true if you want to override the currently cached value")
-        this.cache[key] = val;
-    }
-
-    fetch = key => new Promise((resolve, reject) => {
-        const r = (reason, ...args) => reject(this.e(reason, ...args))
-        try {
-            if (!this.cache[key])
-                return r("there isn't any value stored at the location of the given key")
-            else
-                resolve(this.cache[key])
-        } catch (error) { r("catch error", error) }
     })
 
-}
+    fetch = async (sheetOptions, options) => {
 
-class Queue {
+        // if the tab names are unset fetch them from the file
+        if (!this.tabs) this.tabs = await readSheetNames(this.path);
 
-    e = errors("queue")
-    list = [];
+        // get keys and map them to load the sheets within a file
+        const sheets = Object.keys(sheetOptions);
+        
+        await Promise.all(sheets.map(async name => {
 
-    constructor(core) {
-        this.core = core;
+            const sheet = sheetOptions[name]
+
+            // check if the sheet exists
+            if (!this.tabs.includes(name)) {
+                console.error("the given schema list contains a schema for a sheet (tab) that doesn't exist")
+                return false
+            }
+
+            // set constant equal to the options so it doesnt point to the outside of the function
+            const opt = options;
+
+            // add the schema of the current given sheet to the options
+            opt.sheet = name
+            opt.schema = sheet.schema
+
+            // read the current sheet within the curren file
+            sheet.result = await this.read(name, opt)
+
+            sheetOptions[name] = sheet
+
+        }))
+
+        return sheetOptions;
+
     }
 
-    count = () => this.list.length;
 
-    add = value => this.list.push(value);
-
-    next = () => new Promise((resolve, reject) => {
-        const r = (reason, ...args) => reject(this.e(reason, ...args))
-        try {
-            if (this.count() == 0)
-                return r("the queue is empty")
-            else
-                resolve(this.list.shift())
-        } catch (error) { r("catch error", error) }
-    })
 
 }
 
-class Folder {
+module.exports = class XlsxHandler {
 
     files = [];
 
-    constructor(core, path) {
-        this.core = core;
-        this.path = path || __dirname;
-    }
+    /**
+     * @param {String} path the path of the folder containing the xlsx files
+     * @param {Object} options default options used by all files
+     */
+    constructor(path, options) {
 
-    read = async () => {
-        this.files = readdirSync(this.path).filter(async f => f.endsWith(".xlsx"));
-        if (this.files.length > 0)
-            this.files.map(file => this.core.queue.add({
-                path: join(this.path, file),
-                read: false
-            }))
-    }
+        this.path = path;
+        this.options = options;
 
-    get = async () => this.files;
+        if (!existsSync(this.path)) {
+            console.error("given xlsx folder doesn't exist")
+            process.exit(1)
+        }
 
-}
-
-class Xlsx {
-
-    constructor(path, { readnow = false, options }) {
-        
-        this.cache = new Cache();
-        
-        this.queue = new Queue(this);
-
-        this.folder = new Folder(this, path);
-
-        this.reader = new Reader(this, options);
-
-        if (readnow) this.fetchQueue()
+        readdirSync(this.path)
+            .filter(file => file.endsWith(".xlsx"))
+            .map(file => this.preload(file, false))
 
     }
 
-    fetchQueue = async () => {
+    /**
+     * @param {String} file file name
+     * @param {Boolean} override override current instance of file
+     * @returns {Object} instance of the File class
+     */
+    preload = (file, override) => new Promise(async r => {
 
-        await this.folder.read()
+        // if you call doesn't want to override and there allready
+        // exists an inctance we resolve the current instance
+        if (!this.files[file] || override) {
 
-        while (this.queue.count() > 0) {
-
-            this.
+            // initialize a new file class for the given file
+            this.files[file] = new File(this.path, file)
 
         }
 
-    }
+        // resolve the file instance
+        return r(this.files[file])
+
+    })
+
+    /**
+     * @param {String} file file name
+     * @param {Object} schemas object containing an
+     * @returns {Object} contains the file content
+     */
+    fetch = (file, schemas) => new Promise(async r => {
+         
+        // make sure the file is loaded
+        const f = await this.preload(file, false);
+
+        // fetch the content of the file
+        const result = f.fetch(schemas, this.options)
+
+        // resolve the results
+        return r(result)
+
+    })
 
 }
-
-new Xlsx("uploads", {
-    readnow: true,
-    options: {
-        dateFormat: "dd/mm/yyyy",
-        schema: {
-            "First Name": {
-                prop: "firstName",
-                type: String
-            },
-            "Last Name": {
-                prop: "lastName",
-                type: String
-            },
-            "Gender": {
-                prop: "gender",
-                type: String
-            },
-            "Country": {
-                prop: "country",
-                type: String
-            },
-            "Age": {
-                prop: "age",
-                type: Number
-            },
-            "Date": {
-                prop: "date",
-                type: Date
-            },
-            "Id": {
-                prop: "id",
-                type: Number
-            }
-        }
-    }
-})

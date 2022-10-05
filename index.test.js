@@ -7,11 +7,6 @@ const XlsxHandler = require("./index.js");
 // get the path of the uploads folder
 const filepath = join(__dirname, "uploads");
 
-// preset the default options
-const defaultOptions = {
-    dateFormat: "dd/mm/yyyy"
-}
-
 // schema of the dummy files
 const dummySchemas = {
     "Sheet1": {
@@ -45,8 +40,6 @@ const dummySchemas = {
         }
     }
 }
-
-let logged = 0
 
 // test work file schema
 const sheetOptions = {
@@ -121,7 +114,7 @@ const sheetOptions = {
     // "6. Outbound data 2022": {}
 }
 
-const xlsxHandler = new XlsxHandler(filepath, defaultOptions)
+const xlsxHandler = new XlsxHandler(filepath, {})
 
 const test = (async () => {
 
